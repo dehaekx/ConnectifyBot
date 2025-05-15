@@ -49,7 +49,11 @@ async def tables_create():
                            profile_video_file_id VARCHAR(255),
                            registration_date TIMESTAMP,
                            is_blocked BOOLEAN DEFAULT FALSE,
-                           verify BOOLEAN DEFAULT FALSE
+                           main_in_life VARCHAR(255),
+                           main_in_people VARCHAR(255),
+                           smoking_attitude VARCHAR(255),
+                           alcohol_attitude VARCHAR(255),
+                           search_city VARCHAR(50)
                            )''')
 
     await conn.execute('''CREATE TABLE IF NOT EXISTS messages(
@@ -77,13 +81,6 @@ async def tables_create():
                            FOREIGN KEY (user2_id) REFERENCES users(user_id)
                            )''')
 
-    await conn.execute('''CREATE TABLE IF NOT EXISTS notifications(
-                           notification_id SERIAL PRIMARY KEY,
-                           user_id CHAR(15),
-                           notification_text TEXT,
-                           FOREIGN KEY (user_id) REFERENCES users(user_id)
-                           )''')
-
     await conn.execute('''CREATE TABLE IF NOT EXISTS blocks(
                            block_id SERIAL PRIMARY KEY,
                            blocker_id CHAR(15),
@@ -92,12 +89,6 @@ async def tables_create():
                            FOREIGN KEY (blocked_id) REFERENCES users(user_id)
                            )''')
 
-    await conn.execute('''CREATE TABLE IF NOT EXISTS forms (
-                              form_id SERIAL PRIMARY KEY,
-                              user_id CHAR(15),
-                              status CHAR(20),
-                              FOREIGN KEY (user_id) REFERENCES users(user_id)
-                              )''')
 
     await conn.execute('''CREATE TABLE IF NOT EXISTS complaints (
                                complaint_id SERIAL PRIMARY KEY,
@@ -107,12 +98,6 @@ async def tables_create():
                                status CHAR(20),
                                FOREIGN KEY (user_id) REFERENCES users(user_id),
                                FOREIGN KEY (complained_user_id) REFERENCES users(user_id)
-                               )''')
-
-    await conn.execute('''CREATE TABLE IF NOT EXISTS verification_requests (
-                               request_id SERIAL PRIMARY KEY,
-                               user_id CHAR(15),
-                               FOREIGN KEY (user_id) REFERENCES users(user_id)
                                )''')
 
     await conn.execute('''
@@ -153,30 +138,6 @@ async def insert_user_id(user_id):
         await conn.close()
 
 
-async def insert_user_id_requests(user_id):
-    async with db_pool.acquire() as conn:
-        user_id = str(user_id)
-        query = (
-            "INSERT INTO verification_requests (user_id) VALUES ($1)"
-        )
-
-        await conn.execute(query, user_id)
-        await conn.execute("COMMIT")
-        await conn.close()
-
-
-async def get_verification_request_user_id():
-    async with db_pool.acquire() as conn:
-        user_id = await conn.fetchval('SELECT user_id FROM verification_requests ORDER BY request_id DESC LIMIT 1')
-    return user_id
-
-
-async def get_unverified_users():
-    async with db_pool.acquire() as conn:
-        users = await conn.fetch('SELECT user_id, first_name FROM users WHERE verify = false')
-    return users
-
-
 async def get_liker_user_id(liked_user_id):
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow('SELECT user_id, first_name, age, about_me, city FROM users WHERE user_id = (SELECT '
@@ -192,6 +153,33 @@ async def check_user_exists(user_id):
         query = "SELECT COUNT(*) FROM users WHERE user_id = $1"
         result = await conn.fetchval(query, user_id)
         return result > 0
+
+
+async def check_user_fields_filled(user_id):
+    async with db_pool.acquire() as conn:
+        user_id = str(user_id)
+        query = """
+            SELECT first_name, last_name, age, city, who_like, interests, profile_photo_file_id, profile_video_file_id
+            FROM users 
+            WHERE user_id = $1
+        """
+        result = await conn.fetchrow(query, user_id)
+
+        if not result:
+            return False  # Если пользователя нет в базе
+
+        # Проверяем, что обязательные поля не пустые
+        required_fields = ["first_name", "last_name", "age", "city", "who_like", "interests"]
+        for field in required_fields:
+            if not result[field]:  # None или пустая строка
+                return False
+
+        # Проверяем, что есть хотя бы одно из profile_photo_file_id или profile_video_file_id
+        if not (result["profile_photo_file_id"] or result["profile_video_file_id"]):
+            return False
+
+        return True  # Все обязательные поля заполнены
+
 
 
 async def update_user(user_id, field_name, value):
@@ -223,8 +211,6 @@ async def clear_user_columns(user_id):
             'city': None,
             'registration_date': None,
             'is_blocked': False,
-            'verify': False
-            # Add more columns if needed
         }
 
         # Construct the SQL query
@@ -258,9 +244,7 @@ async def delete_users_with_only_user_id():
             'location',
             'city',
             'registration_date',
-            'is_blocked',
-            'verify'
-            # Add more columns if needed
+            'is_blocked'
         ]
 
         # Construct the SQL query
@@ -278,8 +262,7 @@ async def profile_exists(user_id):
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow('SELECT * FROM users WHERE user_id=$1', user_id)
         if user:
-            verify = user['verify']
-            return verify
+            return True
         else:
             return False
 
@@ -310,8 +293,32 @@ async def get_about_me(user_id):
 
 async def get_city_info(user_id):
     async with db_pool.acquire() as conn:
-        age = await conn.fetchval('SELECT city FROM users WHERE user_id=$1', user_id)
-    return age
+        city = await conn.fetchval('SELECT city FROM users WHERE user_id=$1', user_id)
+    return city
+
+
+async def get_main_in_life(user_id):
+    async with db_pool.acquire() as conn:
+        main_in_life = await conn.fetchval('SELECT main_in_life FROM users WHERE user_id=$1', user_id)
+    return main_in_life
+
+
+async def get_main_in_people(user_id):
+    async with db_pool.acquire() as conn:
+        main_in_people = await conn.fetchval('SELECT main_in_people FROM users WHERE user_id=$1', user_id)
+    return main_in_people
+
+
+async def get_smoking_attitude(user_id):
+    async with db_pool.acquire() as conn:
+        smoking_attitude = await conn.fetchval('SELECT smoking_attitude FROM users WHERE user_id=$1', user_id)
+    return smoking_attitude
+
+
+async def get_alcohol_attitude(user_id):
+    async with db_pool.acquire() as conn:
+        alcohol_attitude = await conn.fetchval('SELECT alcohol_attitude FROM users WHERE user_id=$1', user_id)
+    return alcohol_attitude
 
 
 async def get_photo_file_id(user_id):
@@ -332,22 +339,14 @@ async def get_username(user_id):
     return username
 
 
-async def update_user_verify_status(user_id, status):
-    async with db_pool.acquire() as conn:
-        query = (
-            f"UPDATE users SET verify=$1 WHERE user_id=$2"
-        )
-        await conn.execute(query, status, user_id)
-
-
 async def get_friends_all(user_id):
     async with db_pool.acquire() as conn:
         query = '''
-            SELECT u.first_name, u.username
+            SELECT u.first_name, COALESCE(u.username, '') AS username
             FROM friends AS f
-            LEFT JOIN users AS u ON (f.user1_id = u.user_id AND f.user2_id = $1) OR (f.user2_id = u.user_id AND f.user1_id = $1)
-            WHERE ($1 = f.user1_id OR $1 = f.user2_id) AND u.user_id != $1
-            GROUP BY u.first_name, u.username
+            JOIN users AS u ON (f.user1_id = u.user_id AND f.user2_id = $1) 
+                            OR (f.user2_id = u.user_id AND f.user1_id = $1)
+            WHERE $1 IN (f.user1_id, f.user2_id)
         '''
         friends = await conn.fetch(query, user_id)
     return friends
@@ -356,44 +355,45 @@ async def get_friends_all(user_id):
 async def delete_friend(user_id: str, friend_username: str):
     async with db_pool.acquire() as conn:
         friend_id_query = '''
-            SELECT user_id
-            FROM users
-            WHERE username = $1
+            SELECT user_id FROM users WHERE username = $1
         '''
         friend_id = await conn.fetchval(friend_id_query, friend_username)
 
-        if friend_id:
-            delete_query = '''
-                DELETE FROM friends
-                WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
-            '''
-            await conn.execute(delete_query, user_id, friend_id)
-        else:
-            raise ValueError("User not found")
+        if not friend_id:
+            return False
+
+        delete_query = '''
+            DELETE FROM friends
+            WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+        '''
+        await conn.execute(delete_query, user_id, friend_id)
+        return True
 
 
 async def find_similar_users(user_id):
     query = """
-        SELECT u2.user_id
+        WITH user_info AS (
+            SELECT search_city FROM users WHERE user_id = $1
+        )
+        SELECT 
+            u2.user_id,
+            COUNT(*) AS common_interests
         FROM users u1
         JOIN users u2 ON u1.user_id != u2.user_id
-        WHERE EXISTS (
-            SELECT 1
-            FROM unnest(string_to_array(u1.interests, ',')) interest
-            WHERE interest IN (SELECT unnest(string_to_array(u2.interests, ',')))
-        )
-        AND (
-            (u1.who_like = 'man_and_woman_like')
-            OR (
-                (u1.who_like = 'man_like')
-                AND (u2.gender = 'man')
+        JOIN user_info ui ON TRUE 
+        JOIN LATERAL unnest(string_to_array(u1.interests, ',')) interest 
+            ON interest = ANY(string_to_array(u2.interests, ','))
+        WHERE 
+            u1.user_id = $1
+            AND u2.user_id != $1
+            AND (
+                (u1.who_like = 'man_and_woman_like')
+                OR (u1.who_like = 'man_like' AND u2.gender = 'man')
+                OR (u1.who_like = 'woman_like' AND u2.gender = 'woman')
             )
-            OR (
-                (u1.who_like = 'woman_like')
-                AND (u2.gender = 'woman')
-            )
-        )
-        AND u1.user_id = $1
+            AND (ui.search_city = 'all' OR u2.city = ui.search_city)
+        GROUP BY u2.user_id
+        ORDER BY common_interests DESC;
     """
 
     async with db_pool.acquire() as conn:
@@ -535,15 +535,27 @@ async def put_complaint(user_id: str, complained_user_id: str, reason: str, comp
 
 async def accept_friend_request(user_id: str, friend_id: str):
     async with db_pool.acquire() as conn:
-        # Check if the user exists in the "users" table
+        # Проверяем, существуют ли оба пользователя
         user_exists = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM users WHERE user_id=$1)', user_id)
         friend_exists = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM users WHERE user_id=$1)', friend_id)
 
         if user_exists and friend_exists:
-            await conn.execute('''
-                INSERT INTO friends (user1_id, user2_id)
-                VALUES ($1, $2)
+            # Проверяем, нет ли уже записи в friends
+            existing_friendship = await conn.fetchval('''
+                SELECT EXISTS(
+                    SELECT 1 FROM friends
+                    WHERE (user1_id = $1 AND user2_id = $2) 
+                       OR (user1_id = $2 AND user2_id = $1)
+                )
             ''', user_id, friend_id)
+
+            if not existing_friendship:  # Если пары еще нет, добавляем
+                await conn.execute('''
+                    INSERT INTO friends (user1_id, user2_id)
+                    VALUES ($1, $2)
+                ''', user_id, friend_id)
+            else:
+                print(f"Запись уже существует: {user_id} - {friend_id}")
         else:
             print(f"User {user_id} or friend {friend_id} does not exist in the 'users' table.")
 
@@ -674,18 +686,32 @@ async def get_collage_file_id(user_id: str):
 
 async def insert_block(blocker_id: str, blocked_id: str):
     async with db_pool.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO blocks (blocker_id, blocked_id)
-            VALUES ($1, $2)
-        ''', blocker_id, blocked_id)
+        async with conn.transaction():
+            await conn.execute('''
+                INSERT INTO blocks (blocker_id, blocked_id)
+                VALUES ($1, $2)
+            ''', blocker_id, blocked_id)
+
+            await conn.execute('''
+                UPDATE users
+                SET is_blocked = TRUE
+                WHERE user_id = $1
+            ''', blocked_id)
+
+            await conn.execute('''
+                UPDATE complaints
+                SET status = 'resolved'
+                WHERE complained_user_id = $1
+            ''', blocked_id)
 
 
-async def is_user_blocked(blocker_id: str, blocked_id: str):
+async def is_user_blocked(user_id: str):
     async with db_pool.acquire() as conn:
-        result = await conn.fetchval('''
-            SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2
-        ''', blocker_id, blocked_id)
-        return bool(result)
+        row = await conn.fetchrow('''
+            SELECT is_blocked FROM users WHERE user_id = $1
+        ''', user_id)
+        return row and row['is_blocked']
+
 
 
 async def get_all_blocked_users():

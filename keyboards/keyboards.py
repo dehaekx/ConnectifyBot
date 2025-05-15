@@ -1,7 +1,7 @@
 from aiogram import types
 from aiogram.filters.callback_data import CallbackData
 
-from utils.maps import INTERESTS_MAP
+from utils.maps import INTERESTS_MAP, LIFE_GOALS, MAIN_IN_PEOPLE, ATTITUDE_OPTIONS
 
 
 class InterestFilter(CallbackData, prefix='interest'):
@@ -12,8 +12,8 @@ class InterestFilter(CallbackData, prefix='interest'):
 # Клавиатуры для пользователей(регистрация)
 async def register_gender():
     inline_buttons = [
-        [types.InlineKeyboardButton(text='Парень ⚦', callback_data='man'),
-         types.InlineKeyboardButton(text='Девушка ♀', callback_data='woman')],
+        [types.InlineKeyboardButton(text='Парень', callback_data='man')],
+        [types.InlineKeyboardButton(text='Девушка', callback_data='woman')],
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
@@ -22,7 +22,8 @@ async def register_gender():
 async def register_likes():
     """Кнопки с выборкой кто нравится"""
     inline_buttons = [
-        [types.InlineKeyboardButton(text='Девушки', callback_data='woman_like'), types.InlineKeyboardButton(text='Парни', callback_data='man_like')],
+        [types.InlineKeyboardButton(text='Девушки', callback_data='woman_like')],
+        [types.InlineKeyboardButton(text='Парни', callback_data='man_like')],
         [types.InlineKeyboardButton(text='Все равно', callback_data='man_and_woman_like')],
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
@@ -45,59 +46,6 @@ async def register_interest():
     return keyboard
 
 
-async def skip_step():
-    """Клавиатура, которая переходит к другому этапу, пропуская блок о себе"""
-    kb = [
-        [
-            types.KeyboardButton(text="Пропустить"),
-        ],
-    ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True
-    )
-
-    return keyboard
-
-
-async def use_geo():
-    kb = [
-        [
-            types.KeyboardButton(text="Использовать геолокацию", request_location=True),
-        ],
-    ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True
-    )
-
-    return keyboard
-
-
-async def use_contact():
-    kb = [
-        [
-            types.KeyboardButton(text="Использовать контакт")
-        ],
-    ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True
-    )
-
-    return keyboard
-
-
-# Клавиатуры для пользователей(авторизированные)
-async def profile():
-    inline_buttons = [
-        [types.InlineKeyboardButton(text='Посмотреть профиль', callback_data='look_profile')],
-        [types.InlineKeyboardButton(text='Смотреть анкеты', callback_data='look_questionnaire')],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    return keyboard
-
-
 async def profile_edit():
     inline_buttons = [
         [
@@ -113,12 +61,53 @@ async def profile_edit():
             types.InlineKeyboardButton(text='Изменить интересы', callback_data='edit_interests')
         ],
         [
-            types.InlineKeyboardButton(text='Удалить профиль', callback_data='delete_profile'),
-            # types.InlineKeyboardButton(text='Назад', callback_data='back_to_menu')
+            types.InlineKeyboardButton(text='Изменить жизненную позицию', callback_data='edit_life'),
+            types.InlineKeyboardButton(text='Изменить город поиска', callback_data='edit_search_city'),
         ],
+        [
+            types.InlineKeyboardButton(text='Изменить город профиля', callback_data='edit_city'),
+            types.InlineKeyboardButton(text='Удалить профиль', callback_data='delete_profile'),
+        ]
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
+
+
+async def city_choice_keyboard():
+    inline_buttons = [
+        [
+            types.InlineKeyboardButton(text="Все города", callback_data="all_cities")
+        ]
+    ]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
+    return keyboard
+
+
+async def register_life_positions(options, callback_prefix):
+    """Создает клавиатуру для выбора жизненных позиций."""
+    inline_buttons = [[types.InlineKeyboardButton(text=option, callback_data=f"{callback_prefix}:{option}")] for option in options]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
+    return keyboard
+
+
+async def register_main_in_life():
+    """Клавиатура для 'Главное в жизни'."""
+    return await register_life_positions(LIFE_GOALS, "life_goal")
+
+
+async def register_main_in_people():
+    """Клавиатура для 'Главное в людях'."""
+    return await register_life_positions(MAIN_IN_PEOPLE, "main_in_people")
+
+
+async def register_smoking_attitude():
+    """Клавиатура для 'Отношение к курению'."""
+    return await register_life_positions(ATTITUDE_OPTIONS, "smoking")
+
+
+async def register_alcohol_attitude():
+    """Клавиатура для 'Отношение к алкоголю'."""
+    return await register_life_positions(ATTITUDE_OPTIONS, "alcohol")
 
 
 async def questionnaire(liked_user_id: str):
@@ -133,19 +122,10 @@ async def questionnaire(liked_user_id: str):
             types.InlineKeyboardButton(text='Больше не показывать этого человека',
                                        callback_data=f'confirm_never_seen:{liked_user_id}')
         ],
-        # [
-        #     types.InlineKeyboardButton(text='Выйти в главное меню', callback_data='back_to_menu')
-        # ],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    return keyboard
-
-
-async def questionnaire_look():
-    """Клавиатура, которая показывается тогда, когда лайкнул я, а после и другой"""
-    inline_buttons = [
-        [types.InlineKeyboardButton(text='Посмотреть', callback_data='look')],
-        [types.InlineKeyboardButton(text='Пропустить', callback_data='skip')],
+        [
+            types.InlineKeyboardButton(text='Посмотреть дополнительную информацию',
+                                       callback_data=f'additional_information:{liked_user_id}')
+        ]
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
@@ -155,8 +135,6 @@ async def questionnaire_look_step_second(user_id: str):
     """Клавиатура, которая показывается тогда, когда лайкнули меня и мы нажали на кнопку Посмотреть"""
     inline_buttons = [
         [types.InlineKeyboardButton(text='Добавить в друзья', callback_data=f'add_to_friends:{user_id}')],
-        [types.InlineKeyboardButton(text='Кинуть жалобу', callback_data=f'make_a_complaint:{user_id}')],
-        # [types.InlineKeyboardButton(text='Выйти в главное меню', callback_data='back_to_menu')],
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
@@ -267,7 +245,6 @@ async def admin_keyboard():
     """Изначальная клавиатура админа"""
     kb = [
         [
-            types.KeyboardButton(text="Посмотреть заявки"),
             types.KeyboardButton(text="Посмотреть жалобы"),
         ],
     ]
@@ -276,36 +253,6 @@ async def admin_keyboard():
         resize_keyboard=True
     )
 
-    return keyboard
-
-
-async def admin_keyboard_notification():
-    """Клавиатура, которая показывается тогда, когда пользователь кинул заявку"""
-    inline_buttons = [
-        [types.InlineKeyboardButton(text='Подтвердить анкету', callback_data='confirm_form')],
-        [types.InlineKeyboardButton(text='Отправить на перезаполнение анкеты', callback_data='send_for_editing')],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    return keyboard
-
-
-async def admin_keyboard_notification_with_user_id(user_id: str):
-    """Клавиатура, которая показывается тогда, когда пользователь кинул заявку"""
-    inline_buttons = [
-        [types.InlineKeyboardButton(text='Подтвердить анкету', callback_data=f'confirm_opinion:{user_id}')],
-        [types.InlineKeyboardButton(text='Отправить на перезаполнение анкеты', callback_data='send_for_editing')],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    return keyboard
-
-
-async def admin_keyboard_notification_complaint(user_id: str):
-    """Клавиатура, которая показывается тогда, когда пользователь кинул заявку"""
-    inline_buttons = [
-        [types.InlineKeyboardButton(text='Подтвердить жалобу', callback_data=f'confirm_block:{user_id}')],
-        [types.InlineKeyboardButton(text='Отклонить жалобу', callback_data=f'block_reject:{user_id}')],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
 
 
@@ -318,9 +265,6 @@ async def start_key_with_admin():
         ],
         [
             types.KeyboardButton(text="Админ-панель"),
-        ],
-        [
-            types.KeyboardButton(text="Начать")
         ]
     ]
     keyboard = types.ReplyKeyboardMarkup(
@@ -357,3 +301,4 @@ async def admin_keyboard_ban_decision(user_id: str):
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     return keyboard
+

@@ -1,11 +1,10 @@
 import json
 import os
-import random
 
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery
 
 from config_data.config import chat_for_save_file_id
 from handlers.user_functions import back_to_menu, update_interests_keyboard, send_notification_me
@@ -28,16 +27,20 @@ last_viewed_user_id = None
 async def start_registrate(message: Message, state: FSMContext):
     user_id = str(message.from_user.id)
     print(user_id)
-    profile_exists = await DF.profile_exists(user_id)
+    is_blocked = await DF.is_user_blocked(user_id)
+    if is_blocked:
+        await message.answer("❌ Вы были забанены навсегда и больше не можете пользоваться ботом.")
+        return
+    profile_exists = await DF.check_user_fields_filled(user_id)
     print(profile_exists)
     if profile_exists:
         await message.answer("Вы в главном меню", reply_markup=await K.keyboard_for_user())
     else:
-        await message.answer("Как вас зовут?", reply_markup=types.ReplyKeyboardRemove())
+        await message.answer("Введите свое имя", reply_markup=types.ReplyKeyboardRemove())
         await state.set_state(states.RegisterUser.name)
 
 
-@user.message(states.RegisterUser.name, F.text.isalpha())
+@user.message(states.RegisterUser.name)
 async def get_name_handler(message: Message, state: FSMContext):
     name = message.text
     username = message.from_user.username
@@ -49,7 +52,7 @@ async def get_name_handler(message: Message, state: FSMContext):
         user_id=str(message.chat.id),
         field_name='username',
         value=username)
-    await message.answer("Отлично! Сколько вам лет?")
+    await message.answer("Отлично! Теперь скажите сколько вам лет")
     await state.set_state(states.RegisterUser.age)
 
 
@@ -73,7 +76,7 @@ async def get_age_handler(message: Message, state: FSMContext):
         user_id=str(message.chat.id),
         field_name='age',
         value=age)
-    await message.answer("Из какого вы города? 🌆")  # reply_markup=await K.use_geo()
+    await message.answer("Отлично! Из какого вы города?")  # reply_markup=await K.use_geo()
     await state.set_state(states.RegisterUser.city)
 
 
@@ -89,7 +92,12 @@ async def get_city_handler(message: Message, state: FSMContext):
         field_name='city',
         value=city.title()
     )
-    await message.answer("Расскажите немного о себе")
+    await DF.update_user(
+        user_id=str(message.chat.id),
+        field_name='search_city',
+        value=city.title()
+    )
+    await message.answer("Отлично! Можешь рассказать о себе?")
     await state.set_state(states.RegisterUser.about_me)
 
 
@@ -101,7 +109,7 @@ async def get_about_me(message: Message, state: FSMContext):
         user_id=str(message.chat.id),
         field_name='about_me',
         value=message_text)
-    await message.answer("Выберите ваш пол:", reply_markup=await K.register_gender())
+    await message.answer("Хорошо, кто ты?", reply_markup=await K.register_gender())
     await state.set_state(states.RegisterUser.gender)
 
 
@@ -112,7 +120,7 @@ async def get_gender(query: CallbackQuery, state: FSMContext):
         user_id=str(query.message.chat.id),
         field_name='gender',
         value=query.data)
-    await query.message.answer("Прекрасно! Теперь выберите ваши интересы:",
+    await query.message.answer("Отлично! Теперь давай выберем интересы, чтобы легче было находить своих людей",
                                reply_markup=await K.register_interest())
 
     await state.set_state(states.RegisterUser.interests)
@@ -125,7 +133,7 @@ async def get_gender(query: CallbackQuery, state: FSMContext):
         user_id=str(query.message.chat.id),
         field_name='gender',
         value=query.data)
-    await query.message.answer("Прекрасно! Теперь выберите ваши интересы:",
+    await query.message.answer("Отлично! Теперь давай выберем интересы, чтобы легче было находить своих людей",
                                reply_markup=await K.register_interest())
 
     await state.set_state(states.RegisterUser.interests)
@@ -160,14 +168,14 @@ async def get_interest(query: CallbackQuery, state: FSMContext):
 
     updated_keyboard.inline_keyboard.append(new_row)
 
-    await query.message.edit_text("Выберите свои интересы и нажмите на кнопку подтвердить",
+    await query.message.edit_text("Выберите интересы и нажмите на подтвердить",
                                   reply_markup=updated_keyboard)
 
 
 @user.callback_query(F.data == "confirm_interests")
 async def confirm_interests(query: CallbackQuery):
     await bot.delete_message(chat_id=query.message.chat.id, message_id=query.message.message_id)
-    await query.message.answer("Выберите, кто вам интересен: ", reply_markup=await K.register_likes())
+    await query.message.answer("Выберите кто вам нравится: ", reply_markup=await K.register_likes())
 
 
 @user.callback_query(F.data == "woman_like")
@@ -177,8 +185,8 @@ async def get_interest_person(query: CallbackQuery, state: FSMContext):
         user_id=str(query.message.chat.id),
         field_name='who_like',
         value=query.data)
-    await query.message.answer("Последний шаг! Загрузите вашу фотографию или видео")
-    await state.set_state(states.RegisterUser.photo_or_video)
+    await query.message.answer("Теперь выберите, что для вас главное в жизни:", reply_markup=await K.register_main_in_life())
+    await state.set_state(states.RegisterUser.main_in_life)
 
 
 @user.callback_query(F.data == "man_like")
@@ -188,8 +196,8 @@ async def get_interest_person(query: CallbackQuery, state: FSMContext):
         user_id=str(query.message.chat.id),
         field_name='who_like',
         value=query.data)
-    await query.message.answer("Последний шаг! Загрузите вашу фотографию или видео")
-    await state.set_state(states.RegisterUser.photo_or_video)
+    await query.message.answer("Теперь выберите, что для вас главное в жизни:", reply_markup=await K.register_main_in_life())
+    await state.set_state(states.RegisterUser.main_in_life)
 
 
 @user.callback_query(F.data == "man_and_woman_like")
@@ -199,23 +207,71 @@ async def get_interest_person(query: CallbackQuery, state: FSMContext):
         user_id=str(query.message.chat.id),
         field_name='who_like',
         value=query.data)
-    await query.message.answer("Последний шаг! Загрузите вашу фотографию или видео")
+
+    await query.message.answer("Теперь выберите, что для вас главное в жизни:", reply_markup=await K.register_main_in_life())
+    await state.set_state(states.RegisterUser.main_in_life)
+
+
+@user.callback_query(F.data.startswith("life_goal"), states.RegisterUser.main_in_life)
+async def get_main_in_life(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='main_in_life', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Что для вас главное в людях?", reply_markup=await K.register_main_in_people())
+    await state.set_state(states.RegisterUser.main_in_people)
+
+
+@user.callback_query(F.data.startswith("main_in_people"), states.RegisterUser.main_in_people)
+async def get_main_in_people(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='main_in_people', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Какое у вас отношение к курению?", reply_markup=await K.register_smoking_attitude())
+    await state.set_state(states.RegisterUser.smoking_attitude)
+
+
+@user.callback_query(F.data.startswith("smoking"), states.RegisterUser.smoking_attitude)
+async def get_smoking_attitude(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='smoking_attitude', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Какое у вас отношение к алкоголю?", reply_markup=await K.register_alcohol_attitude())
+    await state.set_state(states.RegisterUser.alcohol_attitude)
+
+
+@user.callback_query(F.data.startswith("alcohol"), states.RegisterUser.alcohol_attitude)
+async def get_alcohol_attitude(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='alcohol_attitude', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Отлично! Последний шаг. Загрузите фотку или видео.")
     await state.set_state(states.RegisterUser.photo_or_video)
 
 
 @user.message(states.RegisterUser.photo_or_video)
 async def get_photo_or_video(message: Message, state: FSMContext):
     username = message.from_user.username
-    user_id = str(message.from_user.id)
     if message.content_type not in ['photo', 'video']:
-        await message.answer("Извините, вы можете загружать только фотографии или видео )")
+        await message.answer("Извините, вы можете загружать только фото или видео.")
         return
     if message.photo:
         self_photo_file_id = message.photo[-1].file_id
         new_self_photo_file_id = await save_user_photo(
             message.chat.id, message.message_id, self_photo_file_id)
 
-        # Сохраняем file_id от фото пользователя в БД
+        # Сохраняем file_id от фото пользователя в базе
         await DF.update_user(str(message.chat.id), 'profile_photo_file_id', new_self_photo_file_id)
         button = [
             [
@@ -235,43 +291,12 @@ async def get_photo_or_video(message: Message, state: FSMContext):
         await DF.update_user(str(message.chat.id), 'profile_video_file_id', new_self_video_file_id)
         await state.clear()
         await DF.update_user(str(message.chat.id), 'username', username)
-        await message.answer("Спасибо! Ваша анкета заполнена. Ожидайте подтверждения от администраторов 📩")
-
-        for admin_id in ADMIN_ID:
-            await DF.insert_user_id_requests(str(user_id))
-            find_photo_file_id = await DF.get_photo_file_id(str(user_id))
-            video_file_id = await DF.get_video_file_id(str(user_id))
-            age = await DF.get_age_info(str(user_id))
-            name = await DF.get_first_name_info(str(user_id))
-            about_me = await DF.get_about_me(str(user_id))
-            city = await DF.get_city_info(str(user_id))
-            if find_photo_file_id:
-                await bot.send_photo(chat_id=admin_id, photo=find_photo_file_id, caption=f"Верифицируете аккаунт:\n"
-                                                                                         f"Имя: {name}\n"
-                                                                                         f"Возраст: {age}\n"
-                                                                                         f"Город: {city}\n"
-                                                                                         f"Информация о себе: {about_me}",
-                                     reply_markup=await K.admin_keyboard_notification())
-            elif video_file_id:
-                await bot.send_video(chat_id=admin_id, video=video_file_id, caption=f"Верифицируете аккаунт:\n"
-                                                                                    f"Имя: {name}\n"
-                                                                                    f"Возраст: {age}\n"
-                                                                                    f"Город: {city}\n"
-                                                                                    f"Информация о себе: {about_me}",
-                                     reply_markup=await K.admin_keyboard_notification())
-            else:
-                await bot.send_message(chat_id=admin_id, video=video_file_id, caption=f"Верифицируете аккаунт:\n"
-                                                                                      f"Имя: {name}\n"
-                                                                                      f"Возраст: {age}\n"
-                                                                                      f"Город: {city}\n"
-                                                                                      f"Информация о себе: {about_me}",
-                                       reply_markup=await K.admin_keyboard_notification())
 
 
 @user.callback_query(F.data == "add_photo")
 async def add_photo(query: CallbackQuery, state: FSMContext):
     await bot.delete_message(chat_id=query.message.chat.id, message_id=query.message.message_id)
-    await query.message.answer("Загрузите следующую фотографию")
+    await query.message.answer("Загрузите следующую фото")
     await state.set_state(states.RegisterUser.additional_photo)
 
 
@@ -292,52 +317,9 @@ async def additional_photo(message: Message, state: FSMContext):
                                                                           'profile_photo_file_id_2')
         if profile_photo_file_id_2:
             await DF.update_additional_photo(str(message.chat.id), 'profile_photo_file_id_3', new_self_photo_file_id)
-            await message.answer("Спасибо! Ваша анкета заполнена. Ожидайте подтверждения от администраторов 📩")
+            await bot.send_message(user_id, "Ваш профиль успешно создан.",
+                                   reply_markup=await K.keyboard_for_user())
             await state.clear()
-            for admin_id in ADMIN_ID:
-                await DF.insert_user_id_requests(str(user_id))
-                find_photo_file_id = await DF.get_photo_file_id(str(user_id))
-                photos = await DF.get_all_additional_photos(str(user_id))
-                video_file_id = await DF.get_video_file_id(str(user_id))
-                age = await DF.get_age_info(str(user_id))
-                name = await DF.get_first_name_info(str(user_id))
-                about_me = await DF.get_about_me(str(user_id))
-                city = await DF.get_city_info(str(user_id))
-                print(f'photos {photos}')
-                if photos:
-                    media_group = []
-                    for photo_file_id in photos.values():
-                        if photo_file_id:
-                            media_group.append(InputMediaPhoto(media=photo_file_id))
-                    if len(media_group) > 1:
-                        await bot.send_media_group(chat_id=admin_id, media=media_group)
-                        await bot.send_message(chat_id=admin_id, text=f"Верифицируйте аккаунт:\n"
-                                                                      f"Имя: {name}\n"
-                                                                      f"Возраст: {age}\n"
-                                                                      f"Город: {city}\n"
-                                                                      f"Информация о себе: {about_me}",
-                                               reply_markup=await K.admin_keyboard_notification())
-                elif find_photo_file_id:
-                    await bot.send_photo(chat_id=admin_id, photo=find_photo_file_id, caption=f"Верифицируйте аккаунт:\n"
-                                                                                             f"Имя: {name}\n"
-                                                                                             f"Возраст: {age}\n"
-                                                                                             f"Город: {city}\n"
-                                                                                             f"Информация о себе: {about_me}",
-                                                 reply_markup=await K.admin_keyboard_notification())
-                elif video_file_id:
-                    await bot.send_video(chat_id=admin_id, video=video_file_id, caption=f"Верифицируйте аккаунт:\n"
-                                                                                        f"Имя: {name}\n"
-                                                                                        f"Возраст: {age}\n"
-                                                                                        f"Город: {city}\n"
-                                                                                        f"Информация о себе: {about_me}",
-                                         reply_markup=await K.admin_keyboard_notification())
-                else:
-                    await bot.send_message(chat_id=admin_id, video=video_file_id, caption=f"Верифицируйте аккаунт:\n"
-                                                                                          f"Имя: {name}\n"
-                                                                                          f"Возраст: {age}\n"
-                                                                                          f"Город: {city}\n"
-                                                                                          f"Информация о себе: {about_me}",
-                                           reply_markup=await K.admin_keyboard_notification())
         else:
             await DF.update_additional_photo(str(message.chat.id), 'profile_photo_file_id_2', new_self_photo_file_id)
             button = [
@@ -354,112 +336,59 @@ async def additional_photo(message: Message, state: FSMContext):
 async def finish(query: CallbackQuery, state: FSMContext):
     user_id = query.message.chat.id
     await bot.delete_message(chat_id=query.message.chat.id, message_id=query.message.message_id)
-    await query.message.answer("Спасибо! Ваша анкета заполнена. Ожидайте подтверждения от администраторов 📩")
+    await bot.send_message(user_id, "Ваш профиль успешно создан.",
+                           reply_markup=await K.keyboard_for_user())
     await state.clear()
-
-    for admin_id in ADMIN_ID:
-        await DF.insert_user_id_requests(str(user_id))
-        find_photo_file_id = await DF.get_photo_file_id(str(user_id))
-        photos = await DF.get_all_additional_photos(str(user_id))
-        video_file_id = await DF.get_video_file_id(str(user_id))
-        age = await DF.get_age_info(str(user_id))
-        name = await DF.get_first_name_info(str(user_id))
-        about_me = await DF.get_about_me(str(user_id))
-        city = await DF.get_city_info(str(user_id))
-        # Получим все дополнительные фотографии пользователя
-        additional_photos = await DF.get_all_additional_photos(str(user_id))
-        print(f'additional photos {additional_photos}')
-        print(f'photos {photos}')
-        # Проверим, если их больше двух, то объединим в одно сообщение
-        if photos:
-            media_group = []
-            for photo_file_id in photos.values():
-                if photo_file_id:
-                    media_group.append(InputMediaPhoto(media=photo_file_id))
-            if len(media_group) > 1:
-                await bot.send_media_group(chat_id=admin_id, media=media_group)
-                await bot.send_message(chat_id=admin_id, text=f"Верифицируйте аккаунт:\n"
-                                                              f"Имя: {name}\n"
-                                                              f"Возраст: {age}\n"
-                                                              f"Город: {city}\n"
-                                                              f"Информация о себе: {about_me}",
-                                       reply_markup=await K.admin_keyboard_notification())
-        elif find_photo_file_id:
-            await bot.send_photo(chat_id=admin_id, photo=find_photo_file_id, caption=f"Верифицируйте аккаунт:\n"
-                                                                                     f"Имя: {name}\n"
-                                                                                     f"Возраст: {age}\n"
-                                                                                     f"Город: {city}\n"
-                                                                                     f"Информация о себе: {about_me}",
-                                        reply_markup=await K.admin_keyboard_notification())
-        elif video_file_id:
-            await bot.send_video(chat_id=admin_id, video=video_file_id, caption=f"Верифицируйте аккаунт:\n"
-                                                                                f"Имя: {name}\n"
-                                                                                f"Возраст: {age}\n"
-                                                                                f"Город: {city}\n"
-                                                                                f"Информация о себе: {about_me}",
-                                 reply_markup=await K.admin_keyboard_notification())
-        else:
-            await bot.send_message(chat_id=admin_id, text=f"Верифицируйте аккаунт:\n"
-                                                          f"Имя: {name}\n"
-                                                          f"Возраст: {age}\n"
-                                                          f"Город: {city}\n"
-                                                          f"Информация о себе: {about_me}\n"
-                                                          f"Фотографии/видео нет",
-                                   reply_markup=await K.admin_keyboard_notification())
-
-
-@user.callback_query(F.data == "look_profile")
-async def look_profile_handler(query: CallbackQuery):
-    user_id = query.message.chat.id
-    print(user_id)
-    username = query.message.chat.username
-    about_me = await DF.get_about_me(str(user_id))
-    name = await DF.get_first_name_info(str(user_id))
-    age = await DF.get_age_info(str(user_id))
-
-    photo_file_id = await DF.get_photo_file_id(str(user_id))
-    video_file_id = await DF.get_video_file_id(str(user_id))
-    photos = await DF.get_all_additional_photos(str(user_id))
-    city = await DF.get_city_info(str(user_id))
-    print(f'photos {photos}')
-    if photos.get('profile_photo_file_id_2') or photos.get('profile_photo_file_id_3'):
-        collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
-                                               photos.get('profile_photo_file_id_2'),
-                                               photos.get('profile_photo_file_id_3')],
-                                              chat_for_save_file_id)
-        print(f'алло {collage_buffer}')
-        if collage_buffer:
-            print(collage_buffer)
-            await query.message.answer_photo(photo=collage_buffer, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                             reply_markup=await K.profile_edit())
-    elif photo_file_id:
-        await query.message.answer_photo(photo=photo_file_id, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                         reply_markup=await K.profile_edit())
-    elif video_file_id:
-        await query.message.answer_video(video=video_file_id, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                         reply_markup=await K.profile_edit())
-    else:
-        await query.message.answer(f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                   reply_markup=await K.profile_edit())
 
 
 @user.message(F.text.lower() == "посмотреть профиль")
 async def look_profile_handler_for_key(message: Message):
     user_id = message.chat.id
     print(user_id)
+    is_blocked = await DF.is_user_blocked(str(user_id))
+    if is_blocked:
+        await message.answer("❌ Вы были забанены навсегда и больше не можете пользоваться ботом.")
+        return
+    # Достаем инфу из БД
     about_me = await DF.get_about_me(str(user_id))
     name = await DF.get_first_name_info(str(user_id))
     age = await DF.get_age_info(str(user_id))
     city = await DF.get_city_info(str(user_id))
+    main_in_life = await DF.get_main_in_life(str(user_id))
+    main_in_people = await DF.get_main_in_people(str(user_id))
+    smoking_attitude = await DF.get_smoking_attitude(str(user_id))
+    alcohol_attitude = await DF.get_alcohol_attitude(str(user_id))
 
     photo_file_id = await DF.get_photo_file_id(str(user_id))
     photos = await DF.get_all_additional_photos(str(user_id))
     print(f'photos {photos}')
+
+    # Проверка, есть ли данные для раздела "Жизненные позиции"
+    life_positions = []
+    if main_in_life and main_in_life.lower() != "пропустить":
+        life_positions.append(f"🔹 Главное в жизни: {main_in_life}")
+    if main_in_people and main_in_people.lower() != "пропустить":
+        life_positions.append(f"🔹 Главное в людях: {main_in_people}")
+    if smoking_attitude and smoking_attitude.lower() != "пропустить":
+        life_positions.append(f"🚬 Отношение к курению: {smoking_attitude}")
+    if alcohol_attitude and alcohol_attitude.lower() != "пропустить":
+        life_positions.append(f"🍷 Отношение к алкоголю: {alcohol_attitude}")
+
+    # Формируем описание профиля
+    caption_text = (f"📌 *Ваш профиль*\n"
+                    f"👤 Имя: {name}\n"
+                    f"🎂 Возраст: {age}\n"
+                    f"📍 Город: {city}\n"
+                    f"📖 О себе: {about_me}\n")
+
+    # Если есть жизненные позиции, добавляем их в описание
+    if life_positions:
+        caption_text += "\n🌟 *Жизненные позиции:*\n" + "\n".join(life_positions)
+
     collage_buffer = await DF.get_collage_file_id(str(user_id))
     if photos.get('profile_photo_file_id_2') or photos.get('profile_photo_file_id_3'):
         if collage_buffer:
-            print(collage_buffer)
-            await message.answer_photo(photo=collage_buffer, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+            await message.answer_photo(photo=collage_buffer, caption=caption_text, parse_mode="Markdown",
                                        reply_markup=await K.profile_edit())
         else:
             collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
@@ -467,15 +396,15 @@ async def look_profile_handler_for_key(message: Message):
                                                    photos.get('profile_photo_file_id_3')],
                                                   chat_for_save_file_id)
             await DF.save_collage_file_id(str(user_id), collage_buffer)
-            await message.answer_photo(photo=collage_buffer, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+            await message.answer_photo(photo=collage_buffer, caption=caption_text, parse_mode="Markdown",
                                        reply_markup=await K.profile_edit())
     elif photo_file_id:
-        await message.answer_photo(photo=photo_file_id, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+        await message.answer_photo(photo=photo_file_id, caption=caption_text, parse_mode="Markdown",
                                    reply_markup=await K.profile_edit())
     else:
         video_file_id = await DF.get_video_file_id(str(user_id))
         if video_file_id:
-            await message.answer_video(video=video_file_id, caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+            await message.answer_video(video=video_file_id, caption=caption_text, parse_mode="Markdown",
                                        reply_markup=await K.profile_edit())
 
 
@@ -501,8 +430,8 @@ async def command_complaint(message: Message):
 
 @user.message(Command("help"))
 async def command_help(message: Message):
-    await message.answer("Вы находитесь в разделе помощи.\n\n ПНа команду /start вы можете начать поиск и"
-                         "общение с другими пользователями этого бота.\n\n Не стесняйтесь начинать новые диалоги и заводить новых друзей! ✨💬")
+    await message.answer("Вы находитесь в разделе помощи.\n\nПожалуйста, укажите ваш юзернейм в Телеграмме, чтобы мы "
+                         "могли легко вас найти.\n Будем благодарны, если вы будете придерживаться этого правила!")
 
 
 @user.callback_query(F.data == "look_my_all_friends")
@@ -532,28 +461,34 @@ async def look_my_all_friends_handler(query: CallbackQuery):
 @user.callback_query(F.data == "delete_friends")
 async def delete_friends_handler(query: CallbackQuery):
     print('delete_friends')
-    user_id = query.message.chat.id
-    friends = await DF.get_friends_all(str(user_id))
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[], row_width=1)
-    if friends:
-        for friend in friends:
-            first_name, username = friend
-            first_name = first_name.strip()
-            username = username.strip() if username else None
+    user_id = str(query.message.chat.id)
 
-            callback_data = f"erase:{user_id}:{username}"
-            button = [
-                [
-                    types.InlineKeyboardButton(text=f"{first_name} - {'@' + username if username else ''}",
-                                               callback_data=callback_data),
-                ],
-                [types.InlineKeyboardButton(text='Назад', callback_data='back_to_menu')]
-            ]
+    # Получаем список друзей
+    friends = await DF.get_friends_all(user_id)
+    print('friends:', friends)  # Логируем список друзей
 
-            keyboard = types.InlineKeyboardMarkup(inline_keyboard=button)
-        await query.message.answer("Выберите друга, которого хотите удалить:", reply_markup=keyboard)
-    else:
-        await query.message.answer("У вас нет друзей", reply_markup=await K.keyboard_for_user())
+    if not friends:
+        await query.message.answer("У вас нет друзей.", reply_markup=await K.keyboard_for_user())
+        return
+
+    # Создаем клавиатуру (НОВЫЙ синтаксис)
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[])
+
+    for friend in friends:
+        first_name, username = friend
+        first_name = first_name.strip()
+        username = username.strip() if username else "Неизвестный"
+
+        callback_data = f"erase:{user_id}:{username}"
+        button = types.InlineKeyboardButton(
+            text=f"{first_name} - @{username}" if username != "Неизвестный" else first_name,
+            callback_data=callback_data
+        )
+
+        keyboard.inline_keyboard.append([button])  # Добавляем кнопку в список
+
+    await query.message.answer("Выберите друга, которого хотите удалить:", reply_markup=keyboard)
+
 
 
 @user.callback_query(F.data.startswith("erase:"))
@@ -561,14 +496,12 @@ async def delete_friend_confirmation_handler(query: CallbackQuery):
     print('lf')
     user_id, friend_username = query.data.split(":")[1:3]
 
-    # Check if the user wants to delete the friend
     message = f"Вы уверены, что хотите удалить {friend_username} из ваших друзей?"
     keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                types.InlineKeyboardButton(text="Да",
-                                           callback_data=f"confirm_delete_friend:{user_id}:{friend_username}"),
-                types.InlineKeyboardButton(text="Нет", callback_data="back_to_menu")
+                types.InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_delete_friend:{user_id}:{friend_username}"),
+                types.InlineKeyboardButton(text="❌ Нет", callback_data="back_to_menu")
             ]
         ]
     )
@@ -580,10 +513,14 @@ async def delete_friend_confirmation_handler(query: CallbackQuery):
 async def confirm_delete_friend_handler(query: CallbackQuery):
     user_id, friend_username = query.data.split(":")[1:3]
 
-    # Delete the friend
-    await DF.delete_friend(str(user_id), friend_username)
-    await query.message.answer(f"{friend_username} был удален из ваших друзей.",
-                               reply_markup=await K.keyboard_for_user())
+    success = await DF.delete_friend(user_id, friend_username)
+
+    if success:
+        await query.message.answer(f"✅ {friend_username} был удален из ваших друзей.",
+                                   reply_markup=await K.keyboard_for_user())
+    else:
+        await query.message.answer("⚠ Ошибка: пользователь не найден или уже удален.",
+                                   reply_markup=await K.keyboard_for_user())
 
 
 @user.callback_query(F.data == "edit_name")
@@ -600,7 +537,7 @@ async def get_edited_name(message: Message, state: FSMContext):
         field_name='first_name',
         value=name)
     await state.clear()
-    await message.answer("Имя изменено", reply_markup=await K.keyboard_for_user()) #, reply_markup=await K.profile_edit()
+    await look_profile_handler_for_key(message)
 
 
 @user.callback_query(F.data == "edit_age")
@@ -624,7 +561,7 @@ async def get_edited_age(message: Message, state: FSMContext):
             field_name='age',
             value=age)
         await state.clear()
-        await message.answer("Возраст изменен", reply_markup=await K.keyboard_for_user()) # , reply_markup=await K.profile_edit()
+        await look_profile_handler_for_key(message)
     except ValueError:
         await message.answer("Некорректный формат возраста. Введите ваш возраст числом.")
 
@@ -663,7 +600,7 @@ async def get_edited_photo(message: Message, state: FSMContext):
         )
 
         await DF.update_user(str(message.chat.id), 'profile_video_file_id', new_self_video_file_id)
-        await message.answer("Видео сохранено.", reply_markup=await K.keyboard_for_user()) #
+        await message.answer("Видео сохранено.", reply_markup=await K.profile_edit())
         await state.clear()
 
 
@@ -755,8 +692,123 @@ async def get_edited_about_me(message: Message, state: FSMContext):
         field_name='about_me',
         value=about_me_message)
     await state.clear()
-    await message.answer("Текст обо мне изменен",
+    await look_profile_handler_for_key(message)
+
+
+@user.callback_query(F.data == "edit_city")
+async def edit_text_handler(query: CallbackQuery, state: FSMContext):
+    await query.message.answer("Напиши город")
+    await state.set_state(states.EditCity.edited_city)
+
+
+@user.message(states.EditCity.edited_city)
+async def get_edited_about_me(message: Message, state: FSMContext):
+    city = message.text.lower()
+    if len(city) < 2 or city not in CITIES_RU:
+        await message.answer("К сожалению, такого города нет в списке. Пожалуйста, введите город еще раз.")
+        return
+
+    await DF.update_user(
+        user_id=str(message.chat.id),
+        field_name='city',
+        value=city.title()
+    )
+    await state.clear()
+    await message.answer("Город изменен",
                          reply_markup=await K.keyboard_for_user())
+
+
+@user.callback_query(F.data == "edit_search_city")
+async def edit_text_handler(query: CallbackQuery, state: FSMContext):
+    await query.message.answer("Напиши город, где хочешь, чтобы показывались анкеты, или выбери 'Все города' 👇",
+                               reply_markup=await K.city_choice_keyboard())
+    await state.set_state(states.EditCitySearch.edited_city)
+
+
+@user.callback_query(F.data == "all_cities")
+async def set_all_cities(query: CallbackQuery, state: FSMContext):
+    """Если нажата кнопка 'Все города', записываем 'all' в базу"""
+    await DF.update_user(
+        user_id=str(query.from_user.id),
+        field_name='search_city',
+        value='all'
+    )
+    await state.clear()
+    await query.message.answer("Поиск теперь будет по всем городам!",
+                               reply_markup=await K.keyboard_for_user())
+
+
+@user.message(states.EditCitySearch.edited_city)
+async def get_edited_about_me(message: Message, state: FSMContext):
+    """Обрабатываем ввод города"""
+    city = message.text.lower()
+
+    if len(city) < 2 or city not in CITIES_RU:
+        await message.answer("К сожалению, такого города нет в списке. Пожалуйста, введите город еще раз.")
+        return
+
+    await DF.update_user(
+        user_id=str(message.chat.id),
+        field_name='search_city',
+        value=city.title()
+    )
+    await state.clear()
+    await look_profile_handler_for_key(message)
+
+
+@user.callback_query(F.data == "edit_life")
+async def edit_life_handler(query: CallbackQuery, state: FSMContext):
+    await query.message.answer("Выберите, что для вас главное в жизни:", reply_markup=await K.register_main_in_life())
+    await state.set_state(states.EditMainInLife.edited_main_in_life)
+
+
+@user.callback_query(F.data.startswith("life_goal"), states.EditMainInLife.edited_main_in_life)
+async def edit_main_in_life(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='main_in_life', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Что для вас главное в людях?", reply_markup=await K.register_main_in_people())
+    await state.set_state(states.EditMainInPeople.edited_main_in_people)
+
+
+@user.callback_query(F.data.startswith("main_in_people"), states.EditMainInPeople.edited_main_in_people)
+async def edit_main_in_people(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='main_in_people', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Какое у вас отношение к курению?", reply_markup=await K.register_smoking_attitude())
+    await state.set_state(states.EditSmokingAttitude.edited_smoking_attitude)
+
+
+@user.callback_query(F.data.startswith("smoking"), states.EditSmokingAttitude.edited_smoking_attitude)
+async def edit_smoking_attitude(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='smoking_attitude', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await query.message.edit_text("Какое у вас отношение к алкоголю?", reply_markup=await K.register_alcohol_attitude())
+    await state.set_state(states.EditAlcoholAttitude.edited_alcohol_attitude)
+
+
+@user.callback_query(F.data.startswith("alcohol"), states.EditAlcoholAttitude.edited_alcohol_attitude)
+async def edit_alcohol_attitude(query: CallbackQuery, state: FSMContext):
+    selected_value = query.data.split(":")[1]
+    await DF.update_user(user_id=str(query.message.chat.id), field_name='alcohol_attitude', value=selected_value)
+    if selected_value == "Пропустить":
+        await query.answer("Вы пропустили этот шаг")
+    else:
+        await query.answer(f"Ты выбрал {selected_value}")
+    await state.clear()
+    await look_profile_handler_for_key(query.message)
+
 
 
 @user.callback_query(F.data == "edit_interests")
@@ -805,7 +857,6 @@ async def interest_handler(query: CallbackQuery, state: FSMContext):
 @user.callback_query(F.data == "edit_confirm_interests")
 async def last_edit_interests_handler(query: CallbackQuery, state: FSMContext):
     await state.clear()
-    await query.message.answer("Интересы были изменены", reply_markup=await K.keyboard_for_user())
     await bot.delete_message(chat_id=query.message.chat.id, message_id=query.message.message_id)
 
 
@@ -824,7 +875,7 @@ async def yes_delete_handler(query: CallbackQuery):
 
 @user.callback_query(F.data == "no_delete")
 async def yes_delete_handler(query: CallbackQuery):
-    await query.message.edit_text("Спасибо, что остаетесь с нами! ",
+    await query.message.answer("Спасибо, что остаетесь с нами! ",
                                   reply_markup=await K.keyboard_for_user())
 
 
@@ -832,32 +883,25 @@ async def look_questionnaire_handler(query: CallbackQuery):
     global last_viewed_user_id
     user_id = query.message.chat.id
 
-    # Получаем список интересов текущего пользователя
-    user_interests = await DF.get_user_interests(str(user_id))
-    print(user_interests)
-    # Получаем список пользователей со схожими интересами
+    # Получаем список пользователей, отсортированных по количеству совпадений
     similar_users = await DF.find_similar_users(str(user_id))
-    print(f'similar_users {similar_users}')
-
-    random.shuffle(similar_users)
-
-    print(similar_users)
+    print(f'Подходящие пользователи: {similar_users}')
 
     if similar_users:
         liked_users = []
         disliked_users = []
         for user in similar_users:
-            print(f'user {user}')
-            # Check if the user has already been liked
             liked = await DF.check_like(str(user_id), str(user))
             disliked = await DF.check_dislike(str(user_id), str(user))
+
             if liked:
                 liked_users.append(user)
             elif disliked:
                 disliked_users.append(user)
             else:
                 last_viewed_user_id = user
-                # Извлекаем информацию о пользователе
+
+                # Загружаем информацию о пользователе
                 name = await DF.get_first_name_info(str(user))
                 age = await DF.get_age_info(str(user))
                 about_me = await DF.get_about_me(str(user))
@@ -866,37 +910,22 @@ async def look_questionnaire_handler(query: CallbackQuery):
                 city = await DF.get_city_info(str(user))
                 photos = await DF.get_all_additional_photos(str(user))
                 collage_buffer = await DF.get_collage_file_id(str(user))
-                print(collage_buffer)
-                # Формируем сообщение с информацией о пользователе
+
                 message_text = f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}"
-                # Отправляем фото или видео, если они есть
+
+                # Отправка фото или видео
                 if photos.get('profile_photo_file_id_2') or photos.get('profile_photo_file_id_3'):
                     if collage_buffer:
-                        await query.message.answer_photo(photo=collage_buffer,
-                                                         caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+                        await query.message.answer_photo(photo=collage_buffer, caption=message_text,
                                                          reply_markup=await K.questionnaire(str(user)))
                     else:
-                        collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
-                                                               photos.get('profile_photo_file_id_2'),
-                                                               photos.get('profile_photo_file_id_3')],
-                                                              chat_for_save_file_id)
+                        collage_buffer = await create_collage([
+                            photos.get('profile_photo_file_id'),
+                            photos.get('profile_photo_file_id_2'),
+                            photos.get('profile_photo_file_id_3')
+                        ], chat_for_save_file_id)
                         await DF.save_collage_file_id(str(user), collage_buffer)
-                        await query.message.answer_photo(photo=collage_buffer,
-                                                         caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                         reply_markup=await K.questionnaire(str(user)))
-                elif photos.get('profile_photo_file_id_2') and photos.get('profile_photo_file_id_3'):
-                    if collage_buffer:
-                        await query.message.answer_photo(photo=collage_buffer,
-                                                         caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                         reply_markup=await K.questionnaire(str(user)))
-                    else:
-                        collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
-                                                               photos.get('profile_photo_file_id_2'),
-                                                               photos.get('profile_photo_file_id_3')],
-                                                              chat_for_save_file_id)
-                        await DF.save_collage_file_id(str(user), collage_buffer)
-                        await query.message.answer_photo(photo=collage_buffer,
-                                                         caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
+                        await query.message.answer_photo(photo=collage_buffer, caption=message_text,
                                                          reply_markup=await K.questionnaire(str(user)))
                 elif photo_file_id:
                     await query.message.answer_photo(photo=photo_file_id, caption=message_text,
@@ -906,43 +935,43 @@ async def look_questionnaire_handler(query: CallbackQuery):
                                                      reply_markup=await K.questionnaire(str(user)))
                 else:
                     await query.message.answer(message_text, reply_markup=await K.questionnaire(str(user)))
+
                 return
-        if liked_users:
-            await query.message.answer("Новых анкет пока что нет. Приходите к нам попозже!")
-        elif disliked_users:
-            await query.message.answer("Новых анкет пока что нет. Приходите к нам попозже!")
+
+        await query.message.answer("Новых анкет пока что нет. Приходите попозже!")
     else:
         await query.message.answer("Не найдено пользователей с совпадающими интересами.")
 
-""""ПРОЦЕСС ПРОСОМТРА АНКЕТ"""
+
 @user.message(F.text.lower() == "анкеты")
 async def look_questionnaire_handler_for_kb(message: Message):
     global last_viewed_user_id
     user_id = message.chat.id
 
-    # Получаем список интересов текущего пользователя
-    user_interests = await DF.get_user_interests(str(user_id))
-    print(user_interests)
-    # Получаем список пользователей со схожими интересами
+    is_blocked = await DF.is_user_blocked(str(user_id))
+    if is_blocked:
+        await message.answer("❌ Вы были забанены навсегда и больше не можете пользоваться ботом.")
+        return
+
+    # Получаем список пользователей, отсортированных по количеству совпадающих интересов
     similar_users = await DF.find_similar_users(str(user_id))
-    print(f'similar_users {similar_users}')
-    random.shuffle(similar_users)
+    print(f'Подходящие пользователи: {similar_users}')
 
     if similar_users:
         liked_users = []
         disliked_users = []
         for user in similar_users:
-            print(f'user {user}')
-            # Check if the user has already been liked
             liked = await DF.check_like(str(user_id), str(user))
             disliked = await DF.check_dislike(str(user_id), str(user))
+
             if liked:
                 liked_users.append(user)
             elif disliked:
                 disliked_users.append(user)
             else:
                 last_viewed_user_id = user
-                # Извлекаем информацию о пользователе
+
+                # Загружаем информацию о пользователе
                 name = await DF.get_first_name_info(str(user))
                 age = await DF.get_age_info(str(user))
                 about_me = await DF.get_about_me(str(user))
@@ -951,51 +980,31 @@ async def look_questionnaire_handler_for_kb(message: Message):
                 city = await DF.get_city_info(str(user))
                 photos = await DF.get_all_additional_photos(str(user))
                 collage_buffer = await DF.get_collage_file_id(str(user))
-                print(collage_buffer)
-                # Формируем сообщение с информацией о пользователе
+
                 message_text = f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}"
-                # Отправляем фото или видео, если они есть
+
+                # Отправка фото или видео
                 if photos.get('profile_photo_file_id_2') or photos.get('profile_photo_file_id_3'):
                     if collage_buffer:
-                        await message.answer_photo(photo=collage_buffer,
-                                                   caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                   reply_markup=await K.questionnaire(str(user)))
+                        await message.answer_photo(photo=collage_buffer, caption=message_text, reply_markup=await K.questionnaire(str(user)))
                     else:
-                        collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
-                                                               photos.get('profile_photo_file_id_2'),
-                                                               photos.get('profile_photo_file_id_3')],
-                                                              chat_for_save_file_id)
+                        collage_buffer = await create_collage([
+                            photos.get('profile_photo_file_id'),
+                            photos.get('profile_photo_file_id_2'),
+                            photos.get('profile_photo_file_id_3')
+                        ], chat_for_save_file_id)
                         await DF.save_collage_file_id(str(user), collage_buffer)
-                        await message.answer_photo(photo=collage_buffer,
-                                                   caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                   reply_markup=await K.questionnaire(str(user)))
-                elif photos.get('profile_photo_file_id_2') and photos.get('profile_photo_file_id_3'):
-                    if collage_buffer:
-                        await message.answer_photo(photo=collage_buffer,
-                                                   caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                   reply_markup=await K.questionnaire(str(user)))
-                    else:
-                        collage_buffer = await create_collage([photos.get('profile_photo_file_id'),
-                                                               photos.get('profile_photo_file_id_2'),
-                                                               photos.get('profile_photo_file_id_3')],
-                                                              chat_for_save_file_id)
-                        await DF.save_collage_file_id(str(user), collage_buffer)
-                        await message.answer_photo(photo=collage_buffer,
-                                                   caption=f"🟢 {name.strip()}, {age}\n{about_me}\n🌎 {city}",
-                                                   reply_markup=await K.questionnaire(str(user)))
+                        await message.answer_photo(photo=collage_buffer, caption=message_text, reply_markup=await K.questionnaire(str(user)))
                 elif photo_file_id:
-                    await message.answer_photo(photo=photo_file_id, caption=message_text,
-                                               reply_markup=await K.questionnaire(str(user)))
+                    await message.answer_photo(photo=photo_file_id, caption=message_text, reply_markup=await K.questionnaire(str(user)))
                 elif video_file_id:
-                    await message.answer_video(video=video_file_id, caption=message_text,
-                                               reply_markup=await K.questionnaire(str(user)))
+                    await message.answer_video(video=video_file_id, caption=message_text, reply_markup=await K.questionnaire(str(user)))
                 else:
                     await message.answer(message_text, reply_markup=await K.questionnaire(str(user)))
+
                 return
-        if liked_users:
-            await message.answer("Новых анкет пока что нет. Приходите к нам попозже!")
-        elif disliked_users:
-            await message.answer("Новых анкет пока что нет. Приходите к нам попозже!")
+
+        await message.answer("Новых анкет пока что нет. Приходите попозже!")
     else:
         await message.answer("Не найдено пользователей с совпадающими интересами.")
 
@@ -1073,6 +1082,33 @@ async def confirm_never_seen_profile_handler(query: CallbackQuery):
     await query.message.answer(message, reply_markup=keyboard)
 
 
+@user.callback_query(lambda callback_query: callback_query.data.startswith("additional_information:"))
+async def confirm_never_seen_profile_handler(query: CallbackQuery):
+    liked_user_id = query.data.split(":")[1]
+    main_in_life = await DF.get_main_in_life(str(liked_user_id))
+    main_in_people = await DF.get_main_in_people(str(liked_user_id))
+    smoking_attitude = await DF.get_smoking_attitude(str(liked_user_id))
+    alcohol_attitude = await DF.get_alcohol_attitude(str(liked_user_id))
+
+    # Проверка, есть ли данные для раздела "Жизненные позиции"
+    life_positions = []
+    if main_in_life and main_in_life.lower() != "пропустить":
+        life_positions.append(f"🔹 Главное в жизни: {main_in_life}")
+    if main_in_people and main_in_people.lower() != "пропустить":
+        life_positions.append(f"🔹 Главное в людях: {main_in_people}")
+    if smoking_attitude and smoking_attitude.lower() != "пропустить":
+        life_positions.append(f"🚬 Отношение к курению: {smoking_attitude}")
+    if alcohol_attitude and alcohol_attitude.lower() != "пропустить":
+        life_positions.append(f"🍷 Отношение к алкоголю: {alcohol_attitude}")
+
+    caption_text = ""
+
+    if life_positions:
+        caption_text += "\n🌟 Жизненные позиции:\n" + "\n".join(life_positions)
+
+    await query.answer(caption_text, show_alert=True)
+
+
 @user.callback_query(lambda callback_query: callback_query.data.startswith("never_seen:"))
 async def never_seen_profile_handler(query: CallbackQuery):
     print('я в never_seen_profile_handler')
@@ -1091,8 +1127,8 @@ async def look_me_form_handler(query: CallbackQuery, state: FSMContext):
     user_id = query.message.chat.id
     user = await DF.get_liker_user_id(str(user_id))
 
-    if user is not None: # \n{about_me}\n🌎 {city}
-        message = f"🟢 {user['first_name'].strip()}, {user['age']}\n{user['about_me']}\n" \
+    if user is not None:
+        message = f"🟢 {user['first_name'].strip()}, {user['age']}\n" \
                   f"🌎 {user['city']}"
         user_message = await DF.get_message_between_users(str(user_id), str(user['user_id']))
         if user_message:
@@ -1177,8 +1213,8 @@ async def accept_friend_handler(query: CallbackQuery):
     # Отправить сообщение пользователю, который принял заявку в друзья
     await bot.send_message(
         user_id,
-        f"Вы подтвердили заявку в друзья",
-    ) #от @{query.message.chat.username}.",
+        f"Вы подтвердили заявку в друзья от @{query.message.chat.username}.",
+    )
 
 
 @user.callback_query(lambda callback_query: callback_query.data.startswith("reject"))
@@ -1267,7 +1303,7 @@ async def complaint_handler(query: CallbackQuery, state: FSMContext):
             admin_id,
             f"Новая жалоба от @{query.from_user.username} на @{complained_username}:\n\n"
             f"Тип жалобы: {complaint_type}",
-            reply_markup=await K.admin_keyboard_notification_complaint(str(complained_user_id))
+            reply_markup=await K.admin_keyboard()
         )
 
     # Отправить сообщение пользователю, который пожаловался

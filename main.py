@@ -34,37 +34,50 @@ ADMIN_ID = str(json.loads(os.getenv('ADMIN_ID')))
 @dp.message(CommandStart())
 async def command_start_handler(message: Message):
     user_id = str(message.from_user.id)
-    print(user_id)
-    block_users = await DF.get_all_blocked_users()
 
-    if user_id in block_users:
-        return
+    # Проверяем, заблокирован ли пользователь
+    is_blocked = await DF.is_user_blocked(user_id)
+    if is_blocked:
+        await message.answer("❌ Вы были забанены навсегда и больше не можете пользоваться ботом.")
+        return  # Останавливаем выполнение
 
-    # Check if the user already exists in the database
+    # Проверяем, есть ли пользователь в базе
     user_exists = await DF.check_user_exists(user_id)
 
     if not user_exists:
-        print('not')
         is_admin = user_id in ADMIN_ID
         await DF.insert_user_id(user_id)
         if is_admin:
-            await message.answer("Привет! Мы рады привествовать вас в нашем боте для знакомств 🤝\n\n"
-                                 "Давайте начнем заполнять профиль, чтобы другие пользователи могли лучше узнать тебя ▶",
+            await message.answer("Привет! Этот бот предназначен для знакомств\n"
+                                 "Давай начнем знакомиться и начать общаться",
                                  reply_markup=await K.start_key_with_admin_not_register())
         else:
-            await message.answer("Привет! Мы рады привествовать вас в нашем боте для знакомств 🤝\n\n"
-                                 "Давайте начнем заполнять профиль, чтобы другие пользователи могли лучше узнать тебя ▶",
+            await message.answer("Привет! Этот бот предназначен для знакомств\n"
+                                 "Давай начнем знакомиться и начать общаться",
                                  reply_markup=await K.start_key())
     else:
-        print('yes')
         is_admin = user_id in ADMIN_ID
+        user_filled = await DF.check_user_fields_filled(user_id)
+
+        if not user_filled:
+            if is_admin:
+                await message.answer("Привет! Этот бот предназначен для знакомств\n"
+                                     "Давай начнем знакомиться и начать общаться",
+                                     reply_markup=await K.start_key_with_admin_not_register())
+            else:
+                await message.answer("Привет! Этот бот предназначен для знакомств\n"
+                                     "Давай начнем знакомиться и начать общаться",
+                                     reply_markup=await K.start_key())
+            return
+
         if is_admin:
-            await message.answer("Привет! Мы рады привествовать вас в нашем боте для знакомств 🤝\n\n"
-                                 "Давайте начнем заполнять профиль, чтобы другие пользователи могли лучше узнать тебя ▶",
+            await message.answer("Привет! Этот бот предназначен для знакомств\n"
+                                 "Давай начнем знакомиться и начать общаться",
                                  reply_markup=await K.start_key_with_admin())
         else:
-            await message.answer("Привет! Мы рады привествовать вас в нашем боте для знакомств 🤝\n\n"
-                                 "Давайте начнем заполнять профиль, чтобы другие пользователи могли лучше узнать тебя ▶",
+            await message.answer("Вы уже зарегистрированы!\n"
+                                 "Привет! Этот бот предназначен для знакомств\n"
+                                 "Давай начнем знакомиться и начать общаться",
                                  reply_markup=await K.keyboard_for_user())
 
 
